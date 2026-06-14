@@ -371,9 +371,11 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
             
         doc_id = doc["id"]
         
-        # Get doc text
+        # Get doc text (limited to 3 chunks to optimize)
         chunks = supabase.table("document_chunks").select("chunk_text").eq("document_id", doc_id).execute().data
-        doc_text = "\n".join([c["chunk_text"] for c in chunks])
+        doc_text = "\n".join([c["chunk_text"] for c in chunks[:3]])
+        
+        print(f"[AUDIT] Processing document: '{doc['title']}' (Using {min(3, len(chunks))} chunks)", flush=True)
         
         drift_found = False
         report = []
@@ -383,6 +385,7 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
             if not url or not url.startswith("http"):
                 continue
                 
+            print(f"[AUDIT] -> Checking reference URL: {url}", flush=True)
             results["checked"] += 1
             
             try:
@@ -426,6 +429,7 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
                 "last_audited_at": "now()"
             }).eq("id", doc_id).execute()
             
+    print(f"[AUDIT COMPLETE] Checked: {results['checked']}, Drift Found: {results['drift_detected']}, Failed: {results['failed']}", flush=True)        
     return results
 
 @app.put("/api/documents/{doc_id}/drift-status")
@@ -519,3 +523,27 @@ def public_search(query: str, limit: int = 10):
         return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# DEBUG ENDPOINTS
+# ==========================================
+
+@app.get("/api/debug/documents")
+def debug_documents():
+    docs = supabase.table("documents").select("id, title, status, created_at").order("created_at", desc=True).execute().data
+    for d in docs:
+        chunks = supabase.table("document_chunks").select("id").eq("document_id", d["id"]).execute().data
+        d["chunk_count"] = len(chunks)
+    return docs
+
+@app.get("/api/debug/chunks/{doc_id}")
+def debug_chunks(doc_id: str):
+    chunks = supabase.table("document_chunks").select("chunk_text, created_at").eq("document_id", doc_id).limit(5).execute().data
+    return chunks
+
+@app.get("/api/debug/audit/{report_id}")
+def debug_audit(report_id: str):
+    doc = supabase.table("documents").select("drift_report").eq("id", report_id).execute().data
+    if not doc:
+        return {"error": "Report/Document not found"}
+    return doc[0].get("drift_report", [])
