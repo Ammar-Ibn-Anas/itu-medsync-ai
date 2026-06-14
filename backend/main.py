@@ -148,10 +148,9 @@ def _process_and_store(title: str, doc_type: str, raw_text: str, source_ref: str
     }
     
     if file_bytes:
-        # Note: storing raw bytes in DB isn't great for scaling, 
-        # but works perfectly for this MVP without dealing with Supabase Storage buckets
+        # Store as base64 string for easier handling
         import base64
-        doc_data["file_bytes"] = file_bytes.hex() # Convert to hex string for postgres bytea
+        doc_data["file_bytes"] = base64.b64encode(file_bytes).decode('utf-8')
 
     doc_record = supabase.table("documents").insert(doc_data).execute().data[0]
     doc_id = doc_record["id"]
@@ -298,15 +297,11 @@ def download_pdf(doc_id: str, admin: dict = Depends(get_current_admin)):
     if not doc.get("file_bytes"):
         raise HTTPException(status_code=404, detail="PDF file not stored for this document")
         
-    # Convert hex string back to bytes
-    import binascii
     try:
-        # If it starts with \x, strip it
-        hex_str = doc["file_bytes"]
-        if hex_str.startswith("\\x"):
-            hex_str = hex_str[2:]
-        pdf_bytes = binascii.unhexlify(hex_str)
-        return Response(content=pdf_bytes, media_type="application/pdf")
+        import base64
+        # Decode base64 string back to bytes
+        pdf_bytes = base64.b64decode(doc["file_bytes"])
+        return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={doc['title']}.pdf"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to decode PDF: {str(e)}")
 
@@ -492,17 +487,13 @@ def public_get_document(doc_id: str):
 
 @app.get("/api/public/documents/{doc_id}/download")
 def public_download_pdf(doc_id: str):
-    # Reuse the admin download logic but without auth
     doc = supabase.table("documents").select("title, file_bytes").eq("id", doc_id).execute().data[0]
     if not doc.get("file_bytes"):
         raise HTTPException(status_code=404, detail="PDF file not stored")
         
-    import binascii
     try:
-        hex_str = doc["file_bytes"]
-        if hex_str.startswith("\\x"):
-            hex_str = hex_str[2:]
-        pdf_bytes = binascii.unhexlify(hex_str)
+        import base64
+        pdf_bytes = base64.b64decode(doc["file_bytes"])
         return Response(
             content=pdf_bytes, 
             media_type="application/pdf",
