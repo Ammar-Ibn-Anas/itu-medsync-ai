@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Upload, Link as LinkIcon, FileText, X, Sparkles, Loader2 } from 'lucide-react';
-import api from '../../api';
+import { Upload, Link as LinkIcon, FileText, X, Sparkles, Loader2, CheckCircle2 } from 'lucide-react';
+import api from '../api';
 
 export default function DocumentUploadModal({ isOpen, onClose, categories, onUploadSuccess }) {
   const [mode, setMode] = useState('file'); // 'file' | 'url'
@@ -318,10 +318,3 @@ export default function DocumentUploadModal({ isOpen, onClose, categories, onUpl
     </div>
   );
 }
-
-// Need to define CheckCircle2 locally since I forgot to import it in the component above
-const CheckCircle2 = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/>
-  </svg>
-);

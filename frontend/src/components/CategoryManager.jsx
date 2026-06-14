@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, Check, X, FolderOpen } from 'lucide-react';
-import api from '../../api';
+import api from '../api';
 
 export default function CategoryManager({ 
   categories, 

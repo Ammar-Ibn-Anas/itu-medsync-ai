@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Edit2, Check, X, FileText, Activity } from 'lucide-react';
-import api from '../../api';
+import api from '../api';
 import StatusBadge from './StatusBadge';
 import ReferenceLinkEditor from './ReferenceLinkEditor';
 import { LoadingSpinner } from './shared';

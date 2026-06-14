@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
-import api from '../../api';
-import { useAuth } from '../../context/AuthContext';
+import api from '../api';
+import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
   const [isSetup, setIsSetup] = useState(false);
