@@ -1,1 +1,0 @@
-# medsync ai backend

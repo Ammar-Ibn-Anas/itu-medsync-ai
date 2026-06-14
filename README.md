@@ -17,9 +17,14 @@ A medical knowledge governance platform that automatically detects when study ma
 - Create an admin user in Authentication → Users
 
 ### 2. Backend
+> [!IMPORTANT]
+> Since you are on **Linux Mint**, the virtual environment is already set up in the **project root folder (`.venv`)**.
+> Always run `source .venv/bin/activate` from the root folder before starting the backend server:
+
 ```bash
+# From the project root folder:
+source .venv/bin/activate
 cd backend
-python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # fill in your keys
 uvicorn main:app --reload --port 8000
