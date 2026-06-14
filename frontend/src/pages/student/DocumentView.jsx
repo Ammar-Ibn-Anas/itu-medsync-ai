@@ -25,8 +25,22 @@ export default function DocumentView() {
     fetchDoc();
   }, [id]);
 
-  const handleDownload = () => {
-    window.location.href = `${api.defaults.baseURL}/api/public/documents/${id}/download`;
+  const handleDownload = async () => {
+    try {
+      const response = await api.get(`/api/public/documents/${id}/download`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${doc.title}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed.');
+    }
   };
 
   if (isLoading) {

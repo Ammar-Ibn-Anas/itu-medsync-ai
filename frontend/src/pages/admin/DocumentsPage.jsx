@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Trash2 } from 'lucide-react';
+import { Upload, Trash2, FileText } from 'lucide-react';
 import api from '../../api';
 import CategoryManager from '../../components/CategoryManager';
 import DocumentCard from '../../components/DocumentCard';
@@ -11,6 +11,7 @@ export default function DocumentsPage() {
   const [documents, setDocuments] = useState([]);
   const [categories, setCategories] = useState([]);
   const [activeCategoryId, setActiveCategoryId] = useState(null);
+  const [sortBy, setSortBy] = useState('newest'); // newest, oldest, updated
   
   const [isLoading, setIsLoading] = useState(true);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -133,8 +134,8 @@ export default function DocumentsPage() {
       </div>
 
       {/* Document List Controls */}
-      <div className="flex items-center justify-between mb-4 px-2">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 px-2">
+        <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-2 cursor-pointer text-slate-300 text-sm">
             <input 
               type="checkbox" 
@@ -155,8 +156,19 @@ export default function DocumentsPage() {
           )}
         </div>
         
-        <div className="text-sm text-slate-500 font-medium">
-          {documents.length} document{documents.length !== 1 && 's'}
+        <div className="flex items-center gap-4">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded px-2 py-1 focus:outline-none"
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="updated">Recently Updated</option>
+          </select>
+          <span className="text-sm text-slate-500 font-medium">
+            {documents.length} doc{documents.length !== 1 && 's'}
+          </span>
         </div>
       </div>
 
@@ -181,7 +193,23 @@ export default function DocumentsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 fade-in">
-          {documents.map(doc => (
+          {documents.sort((a, b) => {
+            let aVal, bVal;
+            if (sortBy === 'newest') {
+              aVal = new Date(a.created_at || 0);
+              bVal = new Date(b.created_at || 0);
+              return bVal - aVal;
+            } else if (sortBy === 'oldest') {
+              aVal = new Date(a.created_at || 0);
+              bVal = new Date(b.created_at || 0);
+              return aVal - bVal;
+            } else if (sortBy === 'updated') {
+              aVal = new Date(a.updated_at || a.created_at || 0);
+              bVal = new Date(b.updated_at || b.created_at || 0);
+              return bVal - aVal;
+            }
+            return 0;
+          }).map(doc => (
             <div key={doc.id} className="relative group">
               <div className="absolute top-5 left-5 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                 <input 

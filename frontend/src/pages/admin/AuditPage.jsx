@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, ShieldAlert, CheckCircle, Clock, AlertTriangle, ArrowRight, ExternalLink } from 'lucide-react';
+import { Play, ShieldAlert, CheckCircle, Clock, AlertTriangle, ArrowRight, ExternalLink, X, FileText } from 'lucide-react';
 import api from '../../api';
 import StatusBadge from '../../components/StatusBadge';
 import { LoadingSpinner } from '../../components/shared';
@@ -9,14 +9,23 @@ export default function AuditPage() {
   const [auditResult, setAuditResult] = useState(null);
   
   const [documents, setDocuments] = useState([]);
+  const [allDocs, setAllDocs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('ALL'); // ALL, REQUIRES_ATTENTION, OUTDATED, OK
+
+  // Manual audit states
+  const [manualNoteId, setManualNoteId] = useState('');
+  const [manualSourceId, setManualSourceId] = useState('');
+  const [manualAuditResult, setManualAuditResult] = useState(null);
+  const [isManualAuditing, setIsManualAuditing] = useState(false);
 
   const fetchData = async () => {
     try {
       const res = await api.get('/api/documents');
+      const allDocsList = res.data.documents || [];
+      setAllDocs(allDocsList); // Store all docs for manual audit dropdowns
       // We only care about docs that have reference links for drift auditing
-      setDocuments((res.data.documents || []).filter(d => d.reference_links?.length > 0));
+      setDocuments(allDocsList.filter(d => d.reference_links?.length > 0));
     } catch (err) {
       console.error(err);
     } finally {
@@ -124,6 +133,103 @@ export default function AuditPage() {
                 <p className="text-xl font-bold text-white">{auditResult.failed}</p>
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Manual Audit Section */}
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-lg">
+        <h2 className="text-xl font-bold text-white mb-4">🔍 Manual Document Comparison</h2>
+        <p className="text-slate-300 text-sm mb-6">Compare any two documents chunk-by-chunk to find contradictions.</p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Study Note (old material)</label>
+            <select
+              value={manualNoteId}
+              onChange={(e) => setManualNoteId(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 appearance-none"
+            >
+              <option value="">-- Select Study Note --</option>
+              {allDocs.filter(d => d.doc_type === 'study_note' && d.status === 'INDEXED').map(d => (
+                <option key={d.id} value={d.id}>{d.title}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Trusted Source (new guideline)</label>
+            <select
+              value={manualSourceId}
+              onChange={(e) => setManualSourceId(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 appearance-none"
+            >
+              <option value="">-- Select Trusted Source --</option>
+              {allDocs.filter(d => d.doc_type === 'trusted_source' && d.status === 'INDEXED').map(d => (
+                <option key={d.id} value={d.id}>{d.title}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <button
+          onClick={async () => {
+            if (!manualNoteId || !manualSourceId) { alert('Select both documents first.'); return; }
+            setIsManualAuditing(true);
+            setManualAuditResult(null);
+            try {
+              const res = await api.post(`/api/audit/run?study_note_id=${manualNoteId}&trusted_source_id=${manualSourceId}`);
+              setManualAuditResult(res.data);
+            } catch (err) {
+              alert('Audit failed: ' + (err.response?.data?.detail || err.message));
+            } finally {
+              setIsManualAuditing(false);
+            }
+          }}
+          disabled={isManualAuditing || !manualNoteId || !manualSourceId}
+          className="bg-purple-700 hover:bg-purple-600 disabled:bg-purple-900 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+        >
+          {isManualAuditing ? <> <span className="animate-spin">⟳</span> Running (~30s)... </> : '🔍 Compare Documents'}
+        </button>
+
+        {manualAuditResult && (
+          <div className="mt-6 slide-up">
+            <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 mb-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <p className="text-sm text-slate-400">🔴 Contradictions</p>
+                  <p className="text-2xl font-bold text-red-500">{manualAuditResult.summary?.contradictions || 0}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-slate-400">🟡 Missing</p>
+                  <p className="text-2xl font-bold text-yellow-500">{manualAuditResult.summary?.missing_context || 0}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-slate-400">🟢 Aligned</p>
+                  <p className="text-2xl font-bold text-green-500">{manualAuditResult.summary?.aligned || 0}</p>
+                </div>
+              </div>
+            </div>
+
+            {manualAuditResult.findings_summary?.map((f, i) => {
+              const colors = { 
+                Contradiction: 'border-l-red-500 bg-red-500/5', 
+                'Missing Context': 'border-l-yellow-500 bg-yellow-500/5', 
+                Aligned: 'border-l-green-500 bg-green-500/5' 
+              };
+              return (
+                <div key={i} className={`border-l-4 rounded-lg p-4 mb-3 ${colors[f.status] || 'border-l-slate-500 bg-slate-900/30'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-semibold text-white">Chunk #{i+1}</p>
+                    <span className="text-xs font-bold uppercase px-2 py-1 rounded bg-slate-700 text-slate-300">{f.status}</span>
+                  </div>
+
+                  <p className="text-sm text-slate-300 mb-2">{f.explanation}</p>
+
+                  {f.specific_change && <p className="text-xs text-amber-400 flex items-start gap-2">⚠ {f.specific_change}</p>}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

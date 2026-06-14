@@ -48,8 +48,22 @@ export default function DocumentCard({
     }
   };
 
-  const handleDownload = () => {
-    window.location.href = `${api.defaults.baseURL}/api/documents/${doc.id}/download`;
+  const handleDownload = async () => {
+    try {
+      const response = await api.get(`/api/documents/${doc.id}/download`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${doc.title}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed. PDF may not be stored for this document.');
+    }
   };
 
   return (

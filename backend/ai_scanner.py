@@ -1,19 +1,21 @@
 import json
+import re
 import requests
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 LLM_MODEL = "llama3.2:3b"
 
 def scan_for_references(text: str) -> list[dict]:
-    """Scans document text for any referenced sources or links."""
+    """Scans document text for referenced sources or links. LLM first, regex fallback."""
     prompt = f"""You are a reference extraction bot. Read the text below and extract any guidelines, studies, trusted sources, or URLs mentioned.
 Return ONLY valid JSON in this format:
 [
   {{"name": "Name of the guideline/source", "url": "URL if present, else empty string", "ai_generated": true}}
 ]
+If nothing is found, return an empty array [].
 
 TEXT:
-{text[:4000]}  # Limit to 4k chars to avoid overwhelming the 3B model
+{text[:4000]}
 """
     try:
         response = requests.post(
@@ -31,10 +33,24 @@ TEXT:
                 raw = raw[4:]
         raw = raw.strip()
         
-        return json.loads(raw)
+        result = json.loads(raw)
+        if result:  # LLM found something, return it
+            return result
     except Exception as e:
-        print(f"Reference scan failed: {e}")
-        return []
+        print(f"LLM reference scan failed: {e}")
+
+    # REGEX FALLBACK — runs if LLM fails or returns nothing
+    print("Falling back to regex URL extraction...")
+    urls = re.findall(r'https?://[^\s\)\]\>\"\']+', text)
+    # Deduplicate and clean
+    seen = set()
+    refs = []
+    for url in urls:
+        url = url.rstrip('.,;:')  # strip trailing punctuation
+        if url not in seen:
+            seen.add(url)
+            refs.append({"name": url, "url": url, "ai_generated": False})
+    return refs
 
 def generate_document_summary(text: str) -> str:
     """Generates a medical summary of the document."""
