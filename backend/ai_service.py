@@ -1,17 +1,16 @@
 import io
 import json
-import os
-from google import genai
-from google.genai import types
+import requests
 from PyPDF2 import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
 
-load_dotenv()
+# Ollama runs locally - no API keys needed
+OLLAMA_BASE_URL = "http://localhost:11434"
+EMBED_MODEL = "nomic-embed-text"   # outputs 768 dims, matches Supabase schema
+LLM_MODEL = "llama3.2:3b"
 
-# Initialize the NEW official Gemini client
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extracts text from a PDF file object."""
@@ -21,39 +20,61 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     except Exception as e:
         raise Exception(f"PDF Extraction failed: {str(e)}")
 
+
 def get_embedding(text: str) -> list:
-    """Generates a 768-dim vector using the NEW Gemini SDK."""
-    response = client.models.embed_content(
-        model="gemini-embedding-001",
-        contents=text
+    """Generates a 768-dim vector using local Ollama nomic-embed-text."""
+    response = requests.post(
+        f"{OLLAMA_BASE_URL}/api/embeddings",
+        json={"model": EMBED_MODEL, "prompt": text},
+        timeout=60
     )
-    return response.embeddings[0].values
+    response.raise_for_status()
+    return response.json()["embedding"]
+
 
 def run_audit_comparison(note_chunk: str, trusted_chunks: list) -> dict:
-    """Compares a study note chunk against trusted source chunks."""
+    """Compares a study note chunk against trusted source chunks using local LLM."""
     context = "\n---\n".join(trusted_chunks)
-    
-    prompt = f"""
-    You are a clinical accuracy auditor. Compare the note against the updated trusted source.
-    Respond ONLY with valid JSON.
-    
-    ORIGINAL_NOTE: "{note_chunk}"
-    UPDATED_SOURCE: "{context}"
-    
-    JSON FORMAT:
-    {{
-      "status": "Contradiction"|"Missing Context"|"Aligned",
-      "explanation": "One sentence describing the finding.",
-      "specific_change": "Exact conflicting phrase if Contradiction."
-    }}
-    """
-    
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-            response_mime_type="application/json"
-        )
+
+    prompt = f"""You are a clinical accuracy auditor. Compare the ORIGINAL_NOTE against the UPDATED_SOURCE.
+You MUST respond with ONLY valid JSON and nothing else. No explanation outside the JSON.
+
+ORIGINAL_NOTE: "{note_chunk}"
+UPDATED_SOURCE: "{context}"
+
+Respond ONLY with this JSON format:
+{{
+  "status": "Contradiction" or "Missing Context" or "Aligned",
+  "explanation": "One sentence describing the finding.",
+  "specific_change": "Exact conflicting phrase if Contradiction, otherwise empty string."
+}}"""
+
+    response = requests.post(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        json={
+            "model": LLM_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0}
+        },
+        timeout=120  # local LLM can be slow
     )
-    return json.loads(response.text)
+    response.raise_for_status()
+    raw = response.json()["response"].strip()
+
+    # Strip markdown fences if the LLM wrapped the JSON
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Fallback if the LLM still misbehaves
+        return {
+            "status": "Aligned",
+            "explanation": "Could not parse AI response. Manual review recommended.",
+            "specific_change": ""
+        }

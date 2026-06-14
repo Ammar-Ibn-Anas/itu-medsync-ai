@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-google-generativeai
 python-dotenv
 supabase
 PyPDF2
@@ -8,3 +7,5 @@ langchain-text-splitters
 requests
 beautifulsoup4
 python-multipart
+ 
+
