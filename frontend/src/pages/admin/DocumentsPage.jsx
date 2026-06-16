@@ -201,8 +201,8 @@ export default function DocumentsPage() {
               } else if (sortBy === 'oldest') {
                 return new Date(a.created_at || 0) - new Date(b.created_at || 0);
               } else if (sortBy === 'updated') {
-                const aDate = b.updated_at || b.created_at || 0;
-                const bDate = a.updated_at || a.created_at || 0;
+                const aDate = a.updated_at || a.created_at || 0;  // ✅ FIXED: aDate uses a
+                const bDate = b.updated_at || b.created_at || 0;  // ✅ FIXED: bDate uses b
                 return new Date(bDate) - new Date(aDate);
               }
               return 0;

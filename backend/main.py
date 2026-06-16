@@ -107,6 +107,11 @@ def get_me(admin: dict = Depends(get_current_admin)):
         raise HTTPException(status_code=404, detail="User not found")
     return users[0]
 
+@app.get("/api/auth/status")
+def auth_status():
+    users = supabase.table("admin_users").select("id").limit(1).execute().data
+    return {"has_admin": len(users) > 0}
+
 # ==========================================
 # CATEGORY ENDPOINTS
 # ==========================================
@@ -162,6 +167,8 @@ def _process_and_store(title: str, doc_type: str, raw_text: str, source_ref: str
             insert_chunk(doc_id, chunk, embedding)
         update_document_status(doc_id, "INDEXED")
     except Exception as e:
+        # Clean up partial chunks
+        supabase.table("document_chunks").delete().eq("document_id", doc_id).execute()
         update_document_status(doc_id, "FAILED")
         raise e
 

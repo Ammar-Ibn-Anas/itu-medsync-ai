@@ -26,7 +26,7 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to fetch admin profile', err);
       // Let the interceptor handle the 401 redirect if needed
-      if (err.response?.status !== 401) {
+      if (err.response?.status === 401) {
         setAdmin(null);
         setToken(null);
       }

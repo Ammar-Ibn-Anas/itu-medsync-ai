@@ -18,21 +18,22 @@ export default function LoginPage() {
   const [name, setName] = useState('');
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/admin');
-      return;
-    }
+  if (isAuthenticated) {
+    navigate('/admin');
+    return;
+  }
 
-    // Check if we need setup
-    api.post('/api/auth/login', { email: 'check@check.com', password: '123' })
-      .catch(err => {
-        // If we get "Invalid email or password", users exist
-        // If we get an error about admin_users being empty or similar, we might need setup
-        // Actually, the cleanest way without a dedicated endpoint is just to try login
-        // But for MedSync MVP, we'll just allow toggle to setup mode
-        setCheckingSetup(false);
-      });
-  }, [isAuthenticated, navigate]);
+  // Check if admin exists
+  api.get('/api/auth/status')
+    .then(res => {
+      setIsSetup(!res.data.has_admin);  // If no admin, show setup form
+      setCheckingSetup(false);
+    })
+    .catch(err => {
+      console.error('Failed to check auth status', err);
+      setCheckingSetup(false);
+    });
+}, [isAuthenticated, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

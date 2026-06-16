@@ -1,6 +1,7 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -9,7 +10,11 @@ supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_
 
 # --- Categories ---
 def get_all_categories():
-    return supabase.table("categories").select("*").order("name").execute().data
+    try:
+        return supabase.table("categories").select("*").order("name").execute().data
+    except Exception as e:
+        print(f"Error fetching categories: {e}")
+        return []  # Return empty list instead of crashing
 
 def create_category(name: str, description: str = ""):
     return supabase.table("categories").insert({
@@ -17,22 +22,24 @@ def create_category(name: str, description: str = ""):
         "description": description
     }).execute().data[0]
 
+from datetime import datetime
+
 def update_category(cat_id: str, name: str, description: str):
     return supabase.table("categories").update({
         "name": name,
         "description": description,
-        "updated_at": "now()"
+        "updated_at": datetime.utcnow().isoformat() 
     }).eq("id", cat_id).execute().data[0]
 
 def delete_category(cat_id: str):
     supabase.table("categories").delete().eq("id", cat_id).execute()
 
 # --- Documents ---
-def get_documents_with_categories(category_id=None):
+def get_documents_with_categories(category_id=None, offset=0, limit=50):
     query = supabase.table("documents").select("*, categories(name)")
     if category_id:
         query = query.eq("category_id", category_id)
-    return query.order("created_at", desc=True).execute().data
+    return query.order("created_at", desc=True).range(offset, offset + limit - 1).execute().data
 
 def get_document_by_id(doc_id: str):
     return supabase.table("documents").select("*, categories(name)").eq("id", doc_id).execute().data[0]
@@ -78,7 +85,5 @@ def mark_all_notifications_read():
     supabase.table("notifications").update({"is_read": True}).eq("is_read", False).execute()
 
 def get_unread_notification_count() -> int:
-    # Supabase Python client doesn't have a direct count() method that returns just the number easily
-    # So we fetch IDs
-    data = supabase.table("notifications").select("id").eq("is_read", False).execute().data
-    return len(data)
+    result = supabase.table("notifications").select("id", count="exact").eq("is_read", False).execute()
+    return result.count

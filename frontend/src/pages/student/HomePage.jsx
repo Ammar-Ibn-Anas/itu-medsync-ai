@@ -238,9 +238,9 @@ export default function HomePage() {
                     .slice()
                     .sort((a, b) => {
                       if (sortBy === 'newest') {
-                        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+                        return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
                       } else if (sortBy === 'oldest') {
-                        return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+                        return new Date(a.updated_at || 0) - new Date(b.updated_at || 0);
                       }
                       return 0;
                     })
