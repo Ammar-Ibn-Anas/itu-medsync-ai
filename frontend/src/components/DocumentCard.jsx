@@ -25,6 +25,7 @@ export default function DocumentCard({
 
   const fileInputRef = useRef(null);
   const [isReplacing, setIsReplacing] = useState(false);
+  const [isAuditingLinks, setIsAuditingLinks] = useState(false);
 
   // Sync if prop changes
   useEffect(() => {
@@ -46,13 +47,31 @@ export default function DocumentCard({
         drift_status: driftStatus,
         category_id: categoryId || null
       });
-      setDoc(res.data);
+      const categoryObj = categories.find(c => c.id === categoryId);
+      const updatedDoc = { ...res.data };
+      if (categoryObj) updatedDoc.categories = categoryObj;
+      
+      setDoc(updatedDoc);
       setIsEditing(false);
     } catch (err) {
       console.error("Failed to save", err);
       alert("Failed to save changes.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleAuditLinks = async () => {
+    setIsAuditingLinks(true);
+    try {
+      const res = await api.post(`/api/audit/document/${doc.id}`);
+      if (onRefresh) onRefresh();
+      alert(`Audit complete! ${res.data.drift_found ? "Drift detected." : "No drift found."}`);
+    } catch (err) {
+      console.error(err);
+      alert("Audit failed.");
+    } finally {
+      setIsAuditingLinks(false);
     }
   };
 
@@ -275,11 +294,20 @@ export default function DocumentCard({
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isReplacing}
+                disabled={isReplacing || isAuditingLinks}
                 className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors disabled:opacity-50"
               >
                 {isReplacing ? 'Replacing...' : 'Replace PDF'}
               </button>
+              {doc.reference_links?.length > 0 && (
+                <button
+                  onClick={handleAuditLinks}
+                  disabled={isAuditingLinks || isReplacing}
+                  className="px-3 py-1.5 text-xs font-medium text-teal-400 hover:text-teal-300 hover:bg-teal-500/10 rounded transition-colors disabled:opacity-50"
+                >
+                  {isAuditingLinks ? 'Auditing...' : 'Check Links'}
+                </button>
+              )}
               <button
                 onClick={() => onDelete(doc)}
                 className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"

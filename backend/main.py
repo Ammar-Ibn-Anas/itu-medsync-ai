@@ -497,6 +497,69 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
     print(f"[AUDIT COMPLETE] Checked: {results['checked']}, Drift Found: {results['drift_detected']}, Failed: {results['failed']}", flush=True)        
     return results
 
+@app.post("/api/audit/document/{doc_id}")
+def run_document_audit(doc_id: str, admin: dict = Depends(get_current_admin)):
+    docs = supabase.table("documents").select("id, title, reference_links").eq("id", doc_id).execute().data
+    if not docs: raise HTTPException(status_code=404, detail="Document not found")
+        
+    doc = docs[0]
+    links = doc.get("reference_links", [])
+    if not links: raise HTTPException(status_code=400, detail="Document has no reference links")
+        
+    chunks = supabase.table("document_chunks").select("chunk_text").eq("document_id", doc_id).execute().data
+    
+    drift_found = False
+    report = []
+    
+    for link in links:
+        url = link.get("url")
+        if not url or not url.startswith("http"): continue
+            
+        # EXTRACT DOMAIN TO FIND RELEVANT CHUNKS
+        domain = url.split("//")[-1].split("/")[0]
+        
+        # ONLY USE CHUNKS THAT MENTION THE URL OR DOMAIN
+        relevant_chunks = [c["chunk_text"] for c in chunks if url in c["chunk_text"] or domain in c["chunk_text"]]
+        
+        # IF NO CHUNKS MENTION IT, JUST USE THE FIRST 3 (FALLBACK)
+        if not relevant_chunks:
+            relevant_chunks = [c["chunk_text"] for c in chunks[:3]]
+            
+        doc_text = "\n".join(relevant_chunks[:5]) # Limit to 5 chunks
+        
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = http_requests.get(url, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                content_type = resp.headers.get("content-type", "")
+                if url.lower().endswith(".pdf") or "application/pdf" in content_type:
+                    web_text = extract_text_from_pdf(resp.content)
+                else:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    web_text = soup.get_text(separator="\n", strip=True)
+                    
+                # PASS THE RELEVANT TEXT TO THE AI
+                comp = compare_with_web_content(doc_text, web_text, link.get("name", "Source"))
+                report.append({"source": link.get("name"), "url": url, "comparison": comp})
+                
+                if comp.get("has_changes") and comp.get("severity") in ["minor", "major"]:
+                    drift_found = True
+        except Exception as e:
+            report.append({"source": link.get("name"), "url": url, "error": str(e)})
+            
+    status = "REQUIRES_ATTENTION" if drift_found else "OK"
+    supabase.table("documents").update({
+        "drift_status": status, "drift_report": report,
+        "last_audited_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", doc_id).execute()
+    
+    if drift_found:
+        create_notification(doc_id, "DRIFT_DETECTED", f"Drift Detected: {doc['title']}", "Audit found changes.")
+        
+    return {"message": "Audit complete", "drift_found": drift_found, "report": report}
+
+
 @app.put("/api/documents/{doc_id}/drift-status")
 def update_drift_status(doc_id: str, req: DriftStatusUpdate, admin: dict = Depends(get_current_admin)):
     supabase.table("documents").update({"drift_status": req.status}).eq("id", doc_id).execute()

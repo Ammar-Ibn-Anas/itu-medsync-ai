@@ -57,25 +57,28 @@ TEXT:
         return "Summary generation failed."
 
 
-def compare_with_web_content(doc_text: str, web_content: str, source_name: str, content_type: str = "web") -> dict:
-    """Compares a document against fetched web content to detect drift using GEMINI."""
-    source_desc = "NEW_SOURCE"
-    if content_type == "pdf":
-        source_desc = "NEW_SOURCE (This text was extracted from a PDF document)"
-        
-    prompt = f"""You are a clinical drift detector. Compare the OLD_NOTE against the {source_desc} to see if any medical guidelines or facts have changed.
-Return ONLY valid JSON in this format:
+def compare_with_web_content(doc_text: str, web_content: str, source_name: str) -> dict:
+    prompt = f"""You are an expert Clinical Drift Detector. 
+Your task is to compare the OLD_NOTE against the NEW_SOURCE to see if any specific medical guidelines have changed.
+
+CRITICAL INSTRUCTIONS:
+1. The OLD_NOTE may contain unrelated text. IGNORE any text in the OLD_NOTE that is not relevant to the NEW_SOURCE.
+2. ONLY compare the specific medical facts, guidelines, or claims that are actually mentioned in BOTH texts.
+3. If the texts are about completely different topics, set has_changes to false and state "No overlapping medical guidelines found."
+4. If you find a change in a specific guideline, set has_changes to true.
+
+Return ONLY valid JSON in this exact format:
 {{
   "has_changes": true or false,
-  "change_summary": "1-2 sentence description of what changed (or 'No changes found')",
+  "change_summary": "1-2 sentence description of the specific guideline that changed",
   "severity": "none", "minor", or "major",
-  "details": "Detailed explanation of the differences"
+  "details": "Detailed explanation of the specific differences found."
 }}
 
 OLD_NOTE:
 {doc_text[:2000]}
 
-{source_desc} ({source_name}):
+NEW_SOURCE ({source_name}):
 {web_content[:2000]}
 """
     try:
