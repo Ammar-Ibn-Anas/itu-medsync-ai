@@ -57,13 +57,17 @@ TEXT:
         return "Summary generation failed."
 
 
-def compare_with_web_content(doc_text: str, web_content: str, source_name: str) -> dict:
+def compare_with_web_content(doc_text: str, web_content: str, source_name: str, **kwargs) -> dict:
+    """Compares a document against fetched web content to detect drift using GEMINI."""
+    
+    # THE NEW SMART PROMPT
     prompt = f"""You are an expert Clinical Drift Detector. 
-Your task is to compare the OLD_NOTE against the NEW_SOURCE to see if any specific medical guidelines have changed.
+
+Your task is to compare the OLD_NOTE against the NEW_SOURCE to see if any specific medical guidelines, statistics, or protocols have changed.
 
 CRITICAL INSTRUCTIONS:
-1. The OLD_NOTE may contain unrelated text. IGNORE any text in the OLD_NOTE that is not relevant to the NEW_SOURCE.
-2. ONLY compare the specific medical facts, guidelines, or claims that are actually mentioned in BOTH texts.
+1. The OLD_NOTE may contain unrelated text (e.g., general exam prep, other topics). IGNORE any text in the OLD_NOTE that is not relevant to the NEW_SOURCE.
+2. ONLY compare the specific medical facts, guidelines, or protocols that are actually mentioned in BOTH texts.
 3. If the texts are about completely different topics, set has_changes to false and state "No overlapping medical guidelines found."
 4. If you find a change in a specific guideline, set has_changes to true.
 
@@ -76,10 +80,10 @@ Return ONLY valid JSON in this exact format:
 }}
 
 OLD_NOTE:
-{doc_text[:2000]}
+{doc_text[:8000]}
 
 NEW_SOURCE ({source_name}):
-{web_content[:2000]}
+{web_content[:8000]}
 """
     try:
         response_text = _generate_with_fallback(prompt, json_mode=True, temperature=0.1)

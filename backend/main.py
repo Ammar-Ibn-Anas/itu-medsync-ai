@@ -432,11 +432,9 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
             
         doc_id = doc["id"]
         
-        # Get doc text (limited to 3 chunks to optimize)
         chunks = supabase.table("document_chunks").select("chunk_text").eq("document_id", doc_id).execute().data
-        doc_text = "\n".join([c["chunk_text"] for c in chunks[:3]])
         
-        print(f"[AUDIT] Processing document: '{doc['title']}' (Using {min(3, len(chunks))} chunks)", flush=True)
+        print(f"[AUDIT] Processing document: '{doc['title']}' (Total {len(chunks)} chunks)", flush=True)
         
         drift_found = False
         report = []
@@ -445,6 +443,13 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
             url = link.get("url")
             if not url or not url.startswith("http"):
                 continue
+                
+            domain = url.split("//")[-1].split("/")[0]
+            relevant_chunks = [c["chunk_text"] for c in chunks if url in c["chunk_text"] or domain in c["chunk_text"]]
+            if not relevant_chunks:
+                relevant_chunks = [c["chunk_text"] for c in chunks[:15]]
+            
+            doc_text = "\n".join(relevant_chunks[:15])
                 
             print(f"[AUDIT] -> Checking reference URL: {url}", flush=True)
             results["checked"] += 1
@@ -457,7 +462,7 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
                     content_type = resp.headers.get("content-type", "")
                     if url.lower().endswith(".pdf") or "application/pdf" in content_type:
                         web_text = extract_text_from_pdf(resp.content)
-                        comp = compare_with_web_content(doc_text, web_text, link.get("name", "Source"), content_type="pdf")
+                        comp = compare_with_web_content(doc_text, web_text, link.get("name", "Source"))
                     else:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(resp.text, "html.parser")
@@ -521,11 +526,11 @@ def run_document_audit(doc_id: str, admin: dict = Depends(get_current_admin)):
         # ONLY USE CHUNKS THAT MENTION THE URL OR DOMAIN
         relevant_chunks = [c["chunk_text"] for c in chunks if url in c["chunk_text"] or domain in c["chunk_text"]]
         
-        # IF NO CHUNKS MENTION IT, JUST USE THE FIRST 3 (FALLBACK)
+        # IF NO CHUNKS MENTION IT, JUST USE THE FIRST 15 (FALLBACK)
         if not relevant_chunks:
-            relevant_chunks = [c["chunk_text"] for c in chunks[:3]]
+            relevant_chunks = [c["chunk_text"] for c in chunks[:15]]
             
-        doc_text = "\n".join(relevant_chunks[:5]) # Limit to 5 chunks
+        doc_text = "\n".join(relevant_chunks[:15]) # Limit to 15 chunks
         
         try:
             headers = {"User-Agent": "Mozilla/5.0"}
