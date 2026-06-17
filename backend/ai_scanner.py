@@ -1,16 +1,23 @@
 import json
 import re
-import requests
+import os
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
 
-OLLAMA_BASE_URL = "http://localhost:11434"
-LLM_MODEL = "llama3.2:3b"
+load_dotenv()
+
+# Gemini for all scanner tasks (fast, smart)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+LLM_MODEL = "gemini-3.1-flash-lite"
+
 
 def scan_for_references(text: str) -> list[dict]:
-    """Scans document text for referenced sources or links. LLM first, regex fallback."""
+    """Scans document text for referenced sources or links using GEMINI."""
     prompt = f"""You are a reference extraction bot. Read the text below and extract any guidelines, studies, trusted sources, or URLs mentioned.
 Return ONLY valid JSON in this format:
 [
-  {{"name": "Name of the guideline/source", "url": "URL if present, else empty string", "ai_generated": true}}
+  {{"name": "Name of the guideline/source", "url": "URL if present, else empty string"}}
 ]
 If nothing is found, return an empty array [].
 
@@ -18,42 +25,36 @@ TEXT:
 {text[:4000]}
 """
     try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": LLM_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.1}},
-            timeout=120
+        response = client.models.generate_content(
+            model=LLM_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
+            )
         )
-        response.raise_for_status()
-        raw = response.json()["response"].strip()
         
-        # Clean up markdown
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
-        
-        result = json.loads(raw)
-        if result:  # LLM found something, return it
+        result = json.loads(response.text)
+        if isinstance(result, list) and result:
             return result
     except Exception as e:
-        print(f"LLM reference scan failed: {e}")
+        print(f"Gemini reference scan failed: {e}")
 
-    # REGEX FALLBACK — runs if LLM fails or returns nothing
+    # REGEX FALLBACK
     print("Falling back to regex URL extraction...")
     urls = re.findall(r'https?://[^\s\)\]\>\"\']+', text)
-    # Deduplicate and clean
     seen = set()
     refs = []
     for url in urls:
-        url = url.rstrip('.,;:')  # strip trailing punctuation
+        url = url.rstrip('.,;:')
         if url not in seen:
             seen.add(url)
-            refs.append({"name": url, "url": url, "ai_generated": False})
+            refs.append({"name": url, "url": url})
     return refs
 
+
 def generate_document_summary(text: str) -> str:
-    """Generates a medical summary of the document."""
+    """Generates a medical summary of the document using GEMINI."""
     prompt = f"""You are a medical assistant. Provide a concise, professional 2-3 paragraph summary of the following medical text. 
 Focus on key clinical guidelines, treatments, or protocols mentioned.
 Do not use markdown formatting like bold or headers. Just plain text paragraphs.
@@ -62,19 +63,19 @@ TEXT:
 {text[:4000]}
 """
     try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": LLM_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.3}},
-            timeout=120
+        response = client.models.generate_content(
+            model=LLM_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.3)
         )
-        response.raise_for_status()
-        return response.json()["response"].strip()
+        return response.text.strip()
     except Exception as e:
         print(f"Summary generation failed: {e}")
         return "Summary generation failed."
 
+
 def compare_with_web_content(doc_text: str, web_content: str, source_name: str) -> dict:
-    """Compares a document against fetched web content to detect drift."""
+    """Compares a document against fetched web content to detect drift using GEMINI."""
     prompt = f"""You are a clinical drift detector. Compare the OLD_NOTE against the NEW_SOURCE to see if any medical guidelines or facts have changed.
 Return ONLY valid JSON in this format:
 {{
@@ -91,21 +92,16 @@ NEW_SOURCE ({source_name}):
 {web_content[:2000]}
 """
     try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": LLM_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.1}},
-            timeout=120
+        response = client.models.generate_content(
+            model=LLM_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
+            )
         )
-        response.raise_for_status()
-        raw = response.json()["response"].strip()
         
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
-        
-        return json.loads(raw)
+        return json.loads(response.text)
     except Exception as e:
         print(f"Comparison failed: {e}")
         return {
