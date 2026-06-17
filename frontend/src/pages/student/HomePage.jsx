@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Search, BookOpen, FolderOpen, ArrowRight, Bookmark as BookmarkIcon, CheckCircle } from 'lucide-react';
-import api from '../../api';
+import { Search, BookOpen, FolderOpen, ArrowRight, Bookmark as BookmarkIcon, CheckCircle, AlertCircle, Clock } from 'lucide-react';import api from '../../api';
 import { LoadingSpinner } from '../../components/shared';
 
 export default function HomePage() {
@@ -11,13 +10,17 @@ export default function HomePage() {
   const [categories, setCategories] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState(null);
+  const [searchError, setSearchError] = useState(null);
 
   const [bookmarks, setBookmarks] = useState([]);
   const [sortBy, setSortBy] = useState('newest');
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const DOCUMENTS_PER_PAGE = 20;
 
   useEffect(() => {
     // Load bookmarks
@@ -29,15 +32,25 @@ export default function HomePage() {
     }
 
     // Load data
-    const loadData = async () => {
+    const loadData = async (pageNum = 0) => {
       setIsLoading(true);
       try {
         const [catsRes, docsRes] = await Promise.all([
           api.get('/api/public/categories'),
-          api.get(categoryId ? `/api/public/documents?category_id=${categoryId}` : '/api/public/documents')
+          api.get(categoryId 
+            ? `/api/public/documents?category_id=${categoryId}&offset=${pageNum * DOCUMENTS_PER_PAGE}&limit=${DOCUMENTS_PER_PAGE}`
+            : `/api/public/documents?offset=${pageNum * DOCUMENTS_PER_PAGE}&limit=${DOCUMENTS_PER_PAGE}`
+          )
         ]);
         setCategories(catsRes.data);
-        setDocuments(docsRes.data || []);
+        
+        if (pageNum === 0) {
+          setDocuments(docsRes.data || []);
+        } else {
+          setDocuments(prev => [...prev, ...(docsRes.data || [])]);
+        }
+        
+        setHasMore((docsRes.data || []).length === DOCUMENTS_PER_PAGE);
       } catch (err) {
         console.error(err);
       } finally {
@@ -45,11 +58,36 @@ export default function HomePage() {
       }
     };
     
-    loadData();
+    setPage(0);
+    loadData(0);
   }, [categoryId]);
+
+  const loadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    
+    const loadData = async () => {
+      try {
+        const docsRes = await api.get(
+          categoryId 
+            ? `/api/public/documents?category_id=${categoryId}&offset=${nextPage * DOCUMENTS_PER_PAGE}&limit=${DOCUMENTS_PER_PAGE}`
+            : `/api/public/documents?offset=${nextPage * DOCUMENTS_PER_PAGE}&limit=${DOCUMENTS_PER_PAGE}`
+        );
+        
+        setDocuments(prev => [...prev, ...(docsRes.data || [])]);
+        setHasMore((docsRes.data || []).length === DOCUMENTS_PER_PAGE);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    
+    loadData();
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
+    setSearchError(null);
+    
     if (!searchQuery.trim()) {
       setSearchResults(null);
       return;
@@ -60,8 +98,7 @@ export default function HomePage() {
       const res = await api.get(`/api/public/search?query=${encodeURIComponent(searchQuery)}&limit=10`);
       setSearchResults(res.data.results || []);
     } catch (err) {
-      console.error(err);
-      alert("Search failed");
+      setSearchError(err.response?.data?.detail || "Search failed. Please try again.");
     } finally {
       setIsSearching(false);
     }
@@ -70,8 +107,10 @@ export default function HomePage() {
   const isBookmarked = (chunk_text) => bookmarks.some(b => b.chunk_text === chunk_text);
 
   const toggleBookmark = (result) => {
+    const isCurrentlyBookmarked = bookmarks.some(b => b.chunk_text === result.chunk_text);
+    
     let updated;
-    if (isBookmarked(result.chunk_text)) {
+    if (isCurrentlyBookmarked) {
       updated = bookmarks.filter(b => b.chunk_text !== result.chunk_text);
     } else {
       updated = [...bookmarks, { 
@@ -81,6 +120,7 @@ export default function HomePage() {
         saved_at: new Date().toISOString() 
       }];
     }
+    
     setBookmarks(updated);
     localStorage.setItem('medsync_bookmarks', JSON.stringify(updated));
   };
@@ -119,11 +159,17 @@ export default function HomePage() {
           </form>
           {searchQuery && searchResults && (
             <button 
-              onClick={() => {setSearchQuery(''); setSearchResults(null);}}
+              onClick={() => {setSearchQuery(''); setSearchResults(null); setSearchError(null);}}
               className="mt-4 text-sm text-slate-400 hover:text-white underline"
             >
               Clear search
             </button>
+          )}
+
+          {searchError && (
+            <div className="max-w-2xl mx-auto mt-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-sm">
+              {searchError}
+            </div>
           )}
         </div>
       </div>
@@ -233,47 +279,72 @@ export default function HomePage() {
                   No documents found in this category.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 fade-in">
-                  {documents
-                    .slice()
-                    .sort((a, b) => {
-                      if (sortBy === 'newest') {
-                        return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
-                      } else if (sortBy === 'oldest') {
-                        return new Date(a.updated_at || 0) - new Date(b.updated_at || 0);
-                      }
-                      return 0;
-                    })
-                    .map(doc => (
-                    <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all group flex flex-col h-full">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xs font-bold uppercase tracking-wider text-teal-600 bg-teal-50 px-2.5 py-1 rounded-md">
-                            {doc.categories?.name || 'Uncategorized'}
-                          </span>
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 fade-in">
+                    {documents
+                      .slice()
+                      .sort((a, b) => {
+                        if (sortBy === 'newest') {
+                          return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+                        } else if (sortBy === 'oldest') {
+                          return new Date(a.updated_at || 0) - new Date(b.updated_at || 0);
+                        }
+                        return 0;
+                      })
+                      .map(doc => (
+                      <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all group flex flex-col h-full">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-xs font-bold uppercase tracking-wider text-teal-600 bg-teal-50 px-2.5 py-1 rounded-md">
+                              {doc.categories?.name || 'Uncategorized'}
+                            </span>
+                          </div>
+                          <h3 className="text-lg font-bold text-slate-900 mb-2 leading-tight group-hover:text-teal-600 transition-colors">
+                            {doc.title}
+                          </h3>
+                          <p className="text-sm text-slate-600 line-clamp-3 mb-4">
+                            {doc.summary || 'No summary available.'}
+                          </p>
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900 mb-2 leading-tight group-hover:text-teal-600 transition-colors">
-                          {doc.title}
-                        </h3>
-                        <p className="text-sm text-slate-600 line-clamp-3 mb-4">
-                          {doc.summary || 'No summary available.'}
-                        </p>
+                        
+                        <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                          {doc.drift_status === 'OK' && (
+                            <span className="text-xs font-medium text-emerald-600 flex items-center gap-1">
+                              <CheckCircle className="w-3.5 h-3.5" /> Verified
+                            </span>
+                          )}
+                          {doc.drift_status === 'REQUIRES_ATTENTION' && (
+                            <span className="text-xs font-medium text-amber-600 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5" /> Needs Review
+                            </span>
+                          )}
+                          {!doc.drift_status && (
+                            <span className="text-xs font-medium text-slate-400 flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" /> Not Audited
+                            </span>
+                          )}
+                          <Link 
+                            to={`/document/${doc.id}`}
+                            className="text-sm font-semibold text-teal-600 group-hover:text-teal-700 flex items-center gap-1"
+                          >
+                            Read Document <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
+                          </Link>
+                        </div>
                       </div>
-                      
-                      <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                        <span className="text-xs font-medium text-slate-400 flex items-center gap-1">
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> Audited
-                        </span>
-                        <Link 
-                          to={`/document/${doc.id}`}
-                          className="text-sm font-semibold text-teal-600 group-hover:text-teal-700 flex items-center gap-1"
-                        >
-                          Read Document <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
-                        </Link>
-                      </div>
+                    ))}
+                  </div>
+                  
+                  {hasMore && documents.length > 0 && (
+                    <div className="text-center mt-8">
+                      <button
+                        onClick={loadMore}
+                        className="px-6 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 transition-colors"
+                      >
+                        Load More Documents
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           </>

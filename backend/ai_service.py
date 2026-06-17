@@ -49,32 +49,54 @@ Respond ONLY with this JSON format:
   "specific_change": "Exact conflicting phrase if Contradiction, otherwise empty string."
 }}"""
 
-    response = requests.post(
-        f"{OLLAMA_BASE_URL}/api/generate",
-        json={
-            "model": LLM_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0}
-        },
-        timeout=120  # local LLM can be slow
-    )
-    response.raise_for_status()
-    raw = response.json()["response"].strip()
-
-    # Strip markdown fences if the LLM wrapped the JSON
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        # Fallback if the LLM still misbehaves
+        response = requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={
+                "model": LLM_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0}
+            },
+            timeout=120
+        )
+        response.raise_for_status()
+        raw = response.json()["response"].strip()
+
+        # Strip markdown fences if the LLM wrapped the JSON
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.lower().startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        parsed = json.loads(raw)
+
+        # --- THE FIX: Handle if LLM returned a list instead of a dict ---
+        if isinstance(parsed, list):
+            if len(parsed) > 0:
+                parsed = parsed[0]  # Take the first item in the list
+            else:
+                parsed = {}
+
+        # Ensure it's a dict and has the required keys
+        if not isinstance(parsed, dict):
+            return {
+                "status": "Aligned",
+                "explanation": "AI returned unexpected format.",
+                "specific_change": ""
+            }
+
+        return {
+            "status": parsed.get("status", "Aligned"),
+            "explanation": parsed.get("explanation", ""),
+            "specific_change": parsed.get("specific_change", "")
+        }
+
+    except Exception as e:
+        print(f"Error in run_audit_comparison: {e}")
         return {
             "status": "Aligned",
-            "explanation": "Could not parse AI response. Manual review recommended.",
+            "explanation": f"Could not parse AI response: {str(e)}",
             "specific_change": ""
         }

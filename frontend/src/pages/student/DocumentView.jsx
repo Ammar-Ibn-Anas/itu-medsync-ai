@@ -45,8 +45,43 @@ export default function DocumentView() {
 
   if (isLoading) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center">
-        <LoadingSpinner size="lg" text="Loading document..." />
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        <div className="animate-pulse space-y-6">
+          {/* Back button skeleton */}
+          <div className="h-4 bg-slate-200 rounded w-24"></div>
+          
+          {/* Header skeleton */}
+          <div className="bg-slate-50 rounded-2xl p-10 space-y-4">
+            <div className="flex gap-3">
+              <div className="h-6 bg-slate-200 rounded w-24"></div>
+              <div className="h-6 bg-slate-200 rounded w-32"></div>
+            </div>
+            <div className="h-12 bg-slate-200 rounded w-3/4"></div>
+            <div className="flex gap-6">
+              <div className="h-4 bg-slate-200 rounded w-40"></div>
+              <div className="h-4 bg-slate-200 rounded w-32"></div>
+            </div>
+          </div>
+          
+          {/* Content skeleton */}
+          <div className="space-y-8">
+            <div>
+              <div className="h-6 bg-slate-200 rounded w-48 mb-4"></div>
+              <div className="space-y-3">
+                <div className="h-4 bg-slate-200 rounded"></div>
+                <div className="h-4 bg-slate-200 rounded w-5/6"></div>
+                <div className="h-4 bg-slate-200 rounded w-4/6"></div>
+              </div>
+            </div>
+            <div>
+              <div className="h-6 bg-slate-200 rounded w-48 mb-4"></div>
+              <div className="bg-slate-50 rounded-xl p-6 space-y-3">
+                <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

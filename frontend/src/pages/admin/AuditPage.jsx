@@ -178,10 +178,7 @@ export default function AuditPage() {
             setIsManualAuditing(true);
             setManualAuditResult(null);
             try {
-              const res = await api.post('/api/audit/run', {
-                study_note_id: manualNoteId,
-                trusted_source_id: manualSourceId
-              });
+              const res = await api.post(`/api/audit/run?study_note_id=${manualNoteId}&trusted_source_id=${manualSourceId}`);
               setManualAuditResult(res.data);
             } catch (err) {
               alert('Audit failed: ' + (err.response?.data?.detail || err.message));
