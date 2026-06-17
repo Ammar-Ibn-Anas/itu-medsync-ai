@@ -1,15 +1,10 @@
 import json
 import re
 import os
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
+from ai_service import _generate_with_fallback
 
 load_dotenv()
-
-# Gemini for all scanner tasks (fast, smart)
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-LLM_MODEL = "gemini-3.1-flash-lite"
 
 
 def scan_for_references(text: str) -> list[dict]:
@@ -25,16 +20,8 @@ TEXT:
 {text[:4000]}
 """
     try:
-        response = client.models.generate_content(
-            model=LLM_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json"
-            )
-        )
-        
-        result = json.loads(response.text)
+        response_text = _generate_with_fallback(prompt, json_mode=True, temperature=0.1)
+        result = json.loads(response_text)
         if isinstance(result, list) and result:
             return result
     except Exception as e:
@@ -63,20 +50,20 @@ TEXT:
 {text[:4000]}
 """
     try:
-        response = client.models.generate_content(
-            model=LLM_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.3)
-        )
-        return response.text.strip()
+        response_text = _generate_with_fallback(prompt, json_mode=False, temperature=0.3)
+        return response_text.strip()
     except Exception as e:
         print(f"Summary generation failed: {e}")
         return "Summary generation failed."
 
 
-def compare_with_web_content(doc_text: str, web_content: str, source_name: str) -> dict:
+def compare_with_web_content(doc_text: str, web_content: str, source_name: str, content_type: str = "web") -> dict:
     """Compares a document against fetched web content to detect drift using GEMINI."""
-    prompt = f"""You are a clinical drift detector. Compare the OLD_NOTE against the NEW_SOURCE to see if any medical guidelines or facts have changed.
+    source_desc = "NEW_SOURCE"
+    if content_type == "pdf":
+        source_desc = "NEW_SOURCE (This text was extracted from a PDF document)"
+        
+    prompt = f"""You are a clinical drift detector. Compare the OLD_NOTE against the {source_desc} to see if any medical guidelines or facts have changed.
 Return ONLY valid JSON in this format:
 {{
   "has_changes": true or false,
@@ -88,20 +75,12 @@ Return ONLY valid JSON in this format:
 OLD_NOTE:
 {doc_text[:2000]}
 
-NEW_SOURCE ({source_name}):
+{source_desc} ({source_name}):
 {web_content[:2000]}
 """
     try:
-        response = client.models.generate_content(
-            model=LLM_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json"
-            )
-        )
-        
-        return json.loads(response.text)
+        response_text = _generate_with_fallback(prompt, json_mode=True, temperature=0.1)
+        return json.loads(response_text)
     except Exception as e:
         print(f"Comparison failed: {e}")
         return {

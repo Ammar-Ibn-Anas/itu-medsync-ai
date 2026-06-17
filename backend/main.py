@@ -2,6 +2,7 @@ import os
 import io
 import json
 import requests as http_requests
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.responses import Response
@@ -254,10 +255,53 @@ def update_document(doc_id: str, updates: DocumentUpdate, admin: dict = Depends(
     if not data:
         return {"message": "Nothing to update"}
     
-    data["updated_at"] = "now()"
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
     updated = supabase.table("documents").update(data).eq("id", doc_id).execute().data[0]
     updated.pop("file_bytes", None)
     return updated
+
+@app.post("/api/documents/{doc_id}/replace")
+async def replace_document(
+    doc_id: str,
+    file: UploadFile = File(...),
+    admin: dict = Depends(get_current_admin)
+):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    
+    doc = get_document_by_id(doc_id)
+    
+    supabase.table("document_chunks").delete().eq("document_id", doc_id).execute()
+    
+    file_bytes = await file.read()
+    raw_text = extract_text_from_pdf(file_bytes)
+    
+    if not raw_text.strip():
+        raise ValueError("No text could be extracted from the document.")
+        
+    import base64
+    b64_bytes = base64.b64encode(file_bytes).decode('utf-8')
+    
+    supabase.table("documents").update({
+        "file_bytes": b64_bytes,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "drift_status": "OK",
+        "drift_report": [],
+        "file_url": file.filename
+    }).eq("id", doc_id).execute()
+    
+    chunks = text_splitter.split_text(raw_text)
+    for chunk in chunks:
+        embedding = get_embedding(chunk)
+        insert_chunk(doc_id, chunk, embedding)
+        
+    create_notification(
+        doc_id, "DOCUMENT_UPDATED",
+        f"Document Replaced: {doc['title']}",
+        "The PDF for this document has been replaced and re-indexed."
+    )
+    
+    return {"message": "Document replaced and indexed", "chunks_created": len(chunks)}
 
 @app.delete("/api/documents/{doc_id}")
 def remove_document(doc_id: str, admin: dict = Depends(get_current_admin)):
@@ -346,6 +390,21 @@ def run_audit_scan(study_note_id: str, trusted_source_id: str, admin: dict = Dep
         contradiction_count = sum(1 for f in findings if f.get("status") == "Contradiction")
         missing_count = sum(1 for f in findings if f.get("status") == "Missing Context")
 
+        if contradiction_count > 0:
+            doc = get_document_by_id(study_note_id)
+            create_notification(
+                study_note_id, "DRIFT_DETECTED",
+                f"Audit: {contradiction_count} contradictions found",
+                f"Manual audit against trusted source found contradictions in {doc['title']}."
+            )
+            
+        supabase.table("audit_reports").insert({
+            "study_note_id": study_note_id,
+            "trusted_source_id": trusted_source_id,
+            "findings": findings,
+            "contradiction_count": contradiction_count
+        }).execute()
+
         return {
             "message": "Audit Complete",
             "summary": {
@@ -395,12 +454,16 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
                 headers = {"User-Agent": "Mozilla/5.0"}
                 resp = http_requests.get(url, headers=headers, timeout=15)
                 if resp.status_code == 200:
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    web_text = soup.get_text(separator="\n", strip=True)
-                    
-                    # Compare
-                    comp = compare_with_web_content(doc_text, web_text, link.get("name", "Source"))
+                    content_type = resp.headers.get("content-type", "")
+                    if url.lower().endswith(".pdf") or "application/pdf" in content_type:
+                        web_text = extract_text_from_pdf(resp.content)
+                        comp = compare_with_web_content(doc_text, web_text, link.get("name", "Source"), content_type="pdf")
+                    else:
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(resp.text, "html.parser")
+                        web_text = soup.get_text(separator="\n", strip=True)
+                        comp = compare_with_web_content(doc_text, web_text, link.get("name", "Source"))
+                        
                     report.append({"source": link.get("name"), "url": url, "comparison": comp})
                     
                     if comp.get("has_changes") and comp.get("severity") in ["minor", "major"]:
@@ -415,7 +478,7 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
             supabase.table("documents").update({
                 "drift_status": "REQUIRES_ATTENTION",
                 "drift_report": report,
-                "last_audited_at": "now()"
+                "last_audited_at": datetime.now(timezone.utc).isoformat()
             }).eq("id", doc_id).execute()
             
             create_notification(
@@ -428,7 +491,7 @@ def run_global_audit(admin: dict = Depends(get_current_admin)):
             supabase.table("documents").update({
                 "drift_status": "OK",
                 "drift_report": report,
-                "last_audited_at": "now()"
+                "last_audited_at": datetime.now(timezone.utc).isoformat()
             }).eq("id", doc_id).execute()
             
     print(f"[AUDIT COMPLETE] Checked: {results['checked']}, Drift Found: {results['drift_detected']}, Failed: {results['failed']}", flush=True)        
@@ -509,6 +572,11 @@ def public_download_pdf(doc_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to decode PDF: {str(e)}")
 
+@app.get("/api/public/documents/{doc_id}/preview")
+def public_document_preview(doc_id: str):
+    chunks = supabase.table("document_chunks").select("chunk_text").eq("document_id", doc_id).order("id").limit(10).execute().data
+    return {"chunks": [c["chunk_text"] for c in chunks]}
+
 @app.get("/api/public/search")
 def public_search(query: str, limit: int = 10):
     try:
@@ -527,7 +595,7 @@ def public_search(query: str, limit: int = 10):
 # ==========================================
 
 @app.get("/api/debug/documents")
-def debug_documents():
+def debug_documents(admin: dict = Depends(get_current_admin)):
     docs = supabase.table("documents").select("id, title, status, created_at").order("created_at", desc=True).execute().data
     for d in docs:
         chunks = supabase.table("document_chunks").select("id").eq("document_id", d["id"]).execute().data
@@ -535,12 +603,12 @@ def debug_documents():
     return docs
 
 @app.get("/api/debug/chunks/{doc_id}")
-def debug_chunks(doc_id: str):
+def debug_chunks(doc_id: str, admin: dict = Depends(get_current_admin)):
     chunks = supabase.table("document_chunks").select("chunk_text, created_at").eq("document_id", doc_id).limit(5).execute().data
     return chunks
 
 @app.get("/api/debug/audit/{report_id}")
-def debug_audit(report_id: str):
+def debug_audit(report_id: str, admin: dict = Depends(get_current_admin)):
     doc = supabase.table("documents").select("drift_report").eq("id", report_id).execute().data
     if not doc:
         return {"error": "Report/Document not found"}

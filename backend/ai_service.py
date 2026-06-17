@@ -20,6 +20,44 @@ LLM_MODEL = "gemini-3.1-flash-lite"  # 500 RPD limit
 
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 
+def _generate_with_fallback(prompt: str, json_mode: bool = True, temperature: float = 0.0) -> str:
+    """Tries Gemini models first, falls back to local Ollama if all fail."""
+    gemini_models = ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"]
+    
+    config = types.GenerateContentConfig(temperature=temperature)
+    if json_mode:
+        config.response_mime_type = "application/json"
+        
+    for model in gemini_models:
+        try:
+            response = gemini_client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config
+            )
+            return response.text
+        except Exception as e:
+            print(f"Gemini {model} failed: {e}")
+            continue
+            
+    # Final Fallback to Ollama
+    print("Falling back to Ollama llama3.2:3b")
+    try:
+        response = requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={
+                "model": "llama3.2:3b",
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": temperature}
+            },
+            timeout=120
+        )
+        response.raise_for_status()
+        return response.json()["response"]
+    except Exception as e:
+        print(f"Ollama fallback failed: {e}")
+        raise Exception("All AI models failed.")
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extracts text from a PDF file object."""
@@ -59,16 +97,8 @@ Respond ONLY with this JSON format:
 }}"""
 
     try:
-        response = gemini_client.models.generate_content(
-            model=LLM_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                response_mime_type="application/json"
-            )
-        )
-        
-        parsed = json.loads(response.text)
+        response_text = _generate_with_fallback(prompt, json_mode=True, temperature=0.0)
+        parsed = json.loads(response_text)
 
         # Handle if LLM returned a list instead of a dict
         if isinstance(parsed, list):

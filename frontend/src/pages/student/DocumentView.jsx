@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, FileText, Link as LinkIcon, BookOpen, ExternalLink, Calendar, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Link as LinkIcon, BookOpen, ExternalLink, Calendar, ShieldCheck, Bookmark } from 'lucide-react';
 import api from '../../api';
 import { LoadingSpinner } from '../../components/shared';
 
@@ -8,14 +8,33 @@ export default function DocumentView() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [doc, setDoc] = useState(null);
+  const [previewChunks, setPreviewChunks] = useState([]);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [isBookmarked, setIsBookmarked] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    let currentPdfUrl = null;
     const fetchDoc = async () => {
       try {
-        const res = await api.get(`/api/public/documents/${id}`);
-        setDoc(res.data);
+        const [docRes, previewRes] = await Promise.all([
+          api.get(`/api/public/documents/${id}`),
+          api.get(`/api/public/documents/${id}/preview`)
+        ]);
+        setDoc(docRes.data);
+        setPreviewChunks(previewRes.data.chunks || []);
+        
+        const saved = JSON.parse(localStorage.getItem('medsync_bookmarks') || '[]');
+        setIsBookmarked(saved.some(b => b.id === id));
+        
+        try {
+          const pdfRes = await api.get(`/api/public/documents/${id}/download`, { responseType: 'blob' });
+          currentPdfUrl = window.URL.createObjectURL(new Blob([pdfRes.data], { type: 'application/pdf' }));
+          setPdfBlobUrl(currentPdfUrl);
+        } catch (pdfErr) {
+          console.warn('PDF not available for embed');
+        }
       } catch (err) {
         setError(err.response?.data?.detail || "Document not found");
       } finally {
@@ -23,7 +42,30 @@ export default function DocumentView() {
       }
     };
     fetchDoc();
+    
+    return () => {
+      if (currentPdfUrl) window.URL.revokeObjectURL(currentPdfUrl);
+    };
   }, [id]);
+
+  const toggleBookmark = () => {
+    const saved = JSON.parse(localStorage.getItem('medsync_bookmarks') || '[]');
+    if (isBookmarked) {
+      const updated = saved.filter(b => b.id !== id);
+      localStorage.setItem('medsync_bookmarks', JSON.stringify(updated));
+      setIsBookmarked(false);
+    } else {
+      saved.push({
+        id: id,
+        title: doc.title,
+        summary: doc.summary,
+        category: doc.categories?.name || 'Uncategorized'
+      });
+      localStorage.setItem('medsync_bookmarks', JSON.stringify(saved));
+      setIsBookmarked(true);
+    }
+    window.dispatchEvent(new Event('bookmarks_updated'));
+  };
 
   const handleDownload = async () => {
     try {
@@ -125,9 +167,22 @@ export default function DocumentView() {
             </span>
           </div>
           
-          <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-6 leading-tight tracking-tight">
-            {doc.title}
-          </h1>
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 leading-tight tracking-tight flex-1">
+              {doc.title}
+            </h1>
+            <button
+              onClick={toggleBookmark}
+              className={`p-3 rounded-xl transition-all ${
+                isBookmarked 
+                  ? 'bg-teal-100 text-teal-700 hover:bg-teal-200' 
+                  : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+              }`}
+              title={isBookmarked ? "Remove Bookmark" : "Add Bookmark"}
+            >
+              <Bookmark className={`w-6 h-6 ${isBookmarked ? 'fill-current' : ''}`} />
+            </button>
+          </div>
           
           <div className="flex flex-wrap items-center gap-6 text-sm text-slate-500 font-medium">
             <div className="flex items-center gap-2">
@@ -158,6 +213,38 @@ export default function DocumentView() {
             ) : (
               <p className="text-slate-500 italic bg-slate-50 p-6 rounded-xl border border-slate-100">
                 No summary available for this document.
+              </p>
+            )}
+          </section>
+
+          {/* Document Content Section */}
+          <section>
+            <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2 uppercase tracking-wide">
+              <BookOpen className="w-5 h-5 text-teal-600" /> Document Content
+            </h2>
+            
+            {pdfBlobUrl ? (
+              <div className="bg-slate-900 rounded-xl overflow-hidden border border-slate-200 shadow-inner" style={{ height: '700px' }}>
+                <object data={pdfBlobUrl} type="application/pdf" width="100%" height="100%">
+                  <p className="p-6 text-white">Your browser doesn't support PDF viewing. <a href={pdfBlobUrl} className="text-teal-400 underline">Download the PDF</a> instead.</p>
+                </object>
+              </div>
+            ) : previewChunks.length > 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-sm">
+                <div className="prose prose-slate max-w-none prose-p:leading-relaxed prose-p:text-slate-700">
+                  {previewChunks.map((chunk, idx) => (
+                    <p key={idx} className="mb-4">{chunk}</p>
+                  ))}
+                  {previewChunks.length >= 10 && (
+                    <div className="mt-6 p-4 bg-slate-50 rounded-lg text-center text-slate-500 italic border border-slate-100">
+                      Preview limited to first few sections. Download PDF to read the full document.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-slate-500 italic bg-slate-50 p-6 rounded-xl border border-slate-100">
+                No content preview available for this document.
               </p>
             )}
           </section>

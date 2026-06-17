@@ -12,6 +12,7 @@ import NotificationsPage from './pages/admin/NotificationsPage';
 import StudentLayout from './pages/student/StudentLayout';
 import HomePage from './pages/student/HomePage';
 import DocumentView from './pages/student/DocumentView';
+import BookmarksPage from './pages/student/BookmarksPage';
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/browse/:categoryId" element={<HomePage />} />
         <Route path="/document/:id" element={<DocumentView />} />
+        <Route path="/bookmarks" element={<BookmarksPage />} />
       </Route>
 
       {/* Admin Auth */}

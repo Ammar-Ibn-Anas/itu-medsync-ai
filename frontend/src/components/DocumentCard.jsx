@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Download, Edit2, Check, X, FileText, Activity } from 'lucide-react';
 import api from '../api';
 import StatusBadge from './StatusBadge';
@@ -7,6 +7,8 @@ import { LoadingSpinner } from './shared';
 
 export default function DocumentCard({ 
   document: initialDoc, 
+  categories = [],
+  onRefresh,
   onDelete, 
   onStatusChange 
 }) {
@@ -19,6 +21,10 @@ export default function DocumentCard({
   const [summary, setSummary] = useState(doc.summary || '');
   const [links, setLinks] = useState(doc.reference_links || []);
   const [driftStatus, setDriftStatus] = useState(doc.drift_status || 'OK');
+  const [categoryId, setCategoryId] = useState(doc.category_id || '');
+
+  const fileInputRef = useRef(null);
+  const [isReplacing, setIsReplacing] = useState(false);
 
   // Sync if prop changes
   useEffect(() => {
@@ -27,6 +33,7 @@ export default function DocumentCard({
     setSummary(initialDoc.summary || '');
     setLinks(initialDoc.reference_links || []);
     setDriftStatus(initialDoc.drift_status || 'OK');
+    setCategoryId(initialDoc.category_id || '');
   }, [initialDoc]);
 
   const handleSave = async () => {
@@ -36,7 +43,8 @@ export default function DocumentCard({
         title,
         summary,
         reference_links: links,
-        drift_status: driftStatus
+        drift_status: driftStatus,
+        category_id: categoryId || null
       });
       setDoc(res.data);
       setIsEditing(false);
@@ -45,6 +53,25 @@ export default function DocumentCard({
       alert("Failed to save changes.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleReplace = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsReplacing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      await api.post(`/api/documents/${doc.id}/replace`, formData);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error("Failed to replace", err);
+      alert("Failed to replace document.");
+    } finally {
+      setIsReplacing(false);
+      e.target.value = null;
     }
   };
 
@@ -77,9 +104,22 @@ export default function DocumentCard({
             }`}>
               {doc.doc_type === 'trusted_source' ? 'Trusted Source' : 'Study Note'}
             </span>
-            <span className="text-xs text-slate-400 flex items-center gap-1">
-              <FileText className="w-3 h-3" /> {doc.categories?.name || 'Uncategorized'}
-            </span>
+            {isEditing ? (
+              <select
+                value={categoryId}
+                onChange={e => setCategoryId(e.target.value)}
+                className="text-xs bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white focus:outline-none focus:border-teal-500"
+              >
+                <option value="">Uncategorized</option>
+                {categories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <FileText className="w-3 h-3" /> {doc.categories?.name || 'Uncategorized'}
+              </span>
+            )}
             <StatusBadge status={isEditing ? driftStatus : doc.drift_status} className="ml-auto" />
           </div>
           
@@ -223,9 +263,23 @@ export default function DocumentCard({
         <div className="text-xs text-slate-500">
           Updated: {new Date(doc.updated_at || doc.created_at).toLocaleDateString()}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           {!isEditing && (
             <>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleReplace} 
+                className="hidden" 
+                accept=".pdf" 
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isReplacing}
+                className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors disabled:opacity-50"
+              >
+                {isReplacing ? 'Replacing...' : 'Replace PDF'}
+              </button>
               <button
                 onClick={() => onDelete(doc)}
                 className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"

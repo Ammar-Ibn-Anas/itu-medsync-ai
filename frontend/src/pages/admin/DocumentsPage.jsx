@@ -220,6 +220,8 @@ export default function DocumentsPage() {
               <div className={selectedDocs.has(doc.id) ? 'ring-2 ring-teal-500/50 rounded-xl' : ''}>
                 <DocumentCard 
                   document={doc} 
+                  categories={categories}
+                  onRefresh={fetchData}
                   onDelete={setDocToDelete}
                   onStatusChange={handleStatusChange}
                 />
