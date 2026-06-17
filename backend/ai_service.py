@@ -91,7 +91,7 @@ UPDATED_SOURCE: "{context}"
 
 Respond ONLY with this JSON format:
 {{
-  "status": "Contradiction" or "Missing Context" or "Aligned",
+    "status": "Contradiction" or "Missing Context" or "Aligned",
   "explanation": "One sentence describing the finding.",
   "specific_change": "Exact conflicting phrase if Contradiction, otherwise empty string."
 }}"""

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: 'https://medsync-backend-xr5w.onrender.com/',
 });
 
 // Add auth token to requests if it exists
